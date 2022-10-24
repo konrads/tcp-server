@@ -12,5 +12,7 @@
 cargo run server
 
 # in terminal 2
-cargo run clinet
+cargo run client
+# or
+echo '{"id":1,"payload":{"x":99,"y":1}}' | nc localhost 3333
 ```
