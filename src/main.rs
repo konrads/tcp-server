@@ -6,13 +6,6 @@ use std::net::{TcpListener, TcpStream};
 use std::str::from_utf8;
 use tcp_server::{run_tcp_server, Request, RequestHandler, Response};
 
-#[derive(Parser, Debug)]
-#[clap(author = "Borboletinha", version, about)]
-struct Arguments {
-    #[clap(subcommand)]
-    cmd: SubCommand,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SumRequest {
     pub x: u8,
@@ -27,7 +20,6 @@ pub struct SumResult {
 #[derive(Copy, Clone)]
 pub struct SumRequestHandler {}
 
-// https://stackoverflow.com/questions/71838366/rust-struct-field-that-implements-multiple-traits
 impl RequestHandler<SumRequest, SumResult> for SumRequestHandler {
     fn handle(&self, req: SumRequest) -> Result<SumResult, String> {
         req.x
@@ -38,6 +30,12 @@ impl RequestHandler<SumRequest, SumResult> for SumRequestHandler {
 }
 
 // https://blog.logrocket.com/command-line-argument-parsing-rust-using-clap/
+#[derive(Parser, Debug)]
+#[clap(author = "Borboletinha", version, about)]
+struct Arguments {
+    #[clap(subcommand)]
+    cmd: SubCommand,
+}
 
 #[derive(Subcommand, Debug)]
 enum SubCommand {
@@ -48,6 +46,11 @@ enum SubCommand {
 fn main() {
     let args = Arguments::parse();
     match args.cmd {
+        SubCommand::Server => {
+            println!("server...");
+            let listener = TcpListener::bind("0.0.0.0:3333").unwrap();
+            run_tcp_server(&listener, SumRequestHandler {});
+        }
         SubCommand::Client => {
             println!("client...");
             match TcpStream::connect("localhost:3333") {
@@ -67,15 +70,8 @@ fn main() {
                     let mut data = [0_u8; 1000];
                     match stream.read(&mut data) {
                         Ok(size) => {
-                            // let filtered_b: Vec<u8> = data.into_iter().take_while(|x| *x != 0).collect();
-                            println!(
-                                "...got: {}: {}",
-                                data.len(),
-                                from_utf8(&data[0..size]).unwrap()
-                            );
-                            let response =
-                                serde_json::from_slice::<Response<SumResult>>(&data[0..size])
-                                    .unwrap();
+                            println!("...got text: {}: {}", data.len(), from_utf8(&data[0..size]).unwrap());
+                            let response = serde_json::from_slice::<Response<SumResult>>(&data[0..size]).unwrap();
                             println!("Got response: {:?}", response);
                         }
                         Err(e) => {
@@ -88,11 +84,6 @@ fn main() {
                 }
             }
             println!("Terminated.");
-        }
-        SubCommand::Server => {
-            println!("server...");
-            let listener = TcpListener::bind("0.0.0.0:3333").unwrap();
-            run_tcp_server(&listener, SumRequestHandler {});
         }
     }
 }

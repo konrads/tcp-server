@@ -8,12 +8,7 @@ pub use types::*;
 
 const TCP_BUFFER_SIZE: usize = 1024; // needs to accommodate the biggest request!
 
-pub fn run_tcp_server<
-    'de: 'a,
-    'a,
-    Payload: DeserializeOwned + Debug,
-    SuccessResult: Serialize + Debug,
->(
+pub fn run_tcp_server<'de: 'a, 'a, Payload: DeserializeOwned + Debug, SuccessResult: Serialize + Debug>(
     tcp_listener: &'a TcpListener,
     req_handler: impl RequestHandler<Payload, SuccessResult> + Send + Sync + Copy + 'static,
 ) {
@@ -29,9 +24,7 @@ pub fn run_tcp_server<
                         Ok(size) => {
                             // echo everything!
                             println!("getting request {}", size);
-                            let request =
-                                serde_json::from_slice::<Request<Payload>>(&data[0..size])
-                                    .expect("Failed to serde_json::from_slice()");
+                            let request = serde_json::from_slice::<Request<Payload>>(&data[0..size]).expect("Failed to serde_json::from_slice()");
                             println!("got request");
 
                             let calc_result = req_handler.handle(request.payload);
@@ -44,18 +37,12 @@ pub fn run_tcp_server<
                                 },
                             };
 
-                            let response_str = serde_json::to_string(&response)
-                                .expect("Failed to serde_json::to_string()");
-                            stream
-                                .write(response_str.as_bytes())
-                                .expect("Failed to stream.write()");
+                            let response_str = serde_json::to_string(&response).expect("Failed to serde_json::to_string()");
+                            stream.write(response_str.as_bytes()).expect("Failed to stream.write()");
                             false
                         }
                         Err(_) => {
-                            println!(
-                                "An error occurred, terminating connection with {}",
-                                stream.peer_addr().unwrap()
-                            );
+                            println!("An error occurred, terminating connection with {}", stream.peer_addr().unwrap());
                             stream.shutdown(Shutdown::Both).unwrap();
                             false
                         }
