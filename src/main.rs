@@ -1,12 +1,40 @@
 use clap::{Parser, Subcommand};
-mod types;
+use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::str::from_utf8;
+use tcp_server::{run_tcp_server, Request, RequestHandler, Response};
 
 #[derive(Parser, Debug)]
 #[clap(author = "Borboletinha", version, about)]
-/// A Very simple Package Hunter
 struct Arguments {
     #[clap(subcommand)]
     cmd: SubCommand,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SumRequest {
+    pub x: u8,
+    pub y: u8,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SumResult {
+    pub res: u8,
+}
+
+#[derive(Copy, Clone)]
+pub struct SumRequestHandler {}
+
+// https://stackoverflow.com/questions/71838366/rust-struct-field-that-implements-multiple-traits
+impl RequestHandler<SumRequest, SumResult> for SumRequestHandler {
+    fn handle(&self, req: SumRequest) -> Result<SumResult, String> {
+        req.x
+            .checked_add(req.y)
+            .map(|x| SumResult { res: x })
+            .ok_or_else(|| format!("Failed to sum {} and {}", req.x, req.y))
+    }
 }
 
 // https://blog.logrocket.com/command-line-argument-parsing-rust-using-clap/
@@ -17,19 +45,54 @@ enum SubCommand {
     Server,
 }
 
-mod client;
-mod server;
-
 fn main() {
     let args = Arguments::parse();
     match args.cmd {
         SubCommand::Client => {
             println!("client...");
-            client::main()
+            match TcpStream::connect("localhost:3333") {
+                Ok(mut stream) => {
+                    println!("Successfully connected to server in port 3333");
+
+                    let req = Request {
+                        id: 55,
+                        payload: SumRequest { x: 25, y: 45 },
+                    };
+                    let req_str = serde_json::to_string(&req).unwrap();
+                    let req_b = req_str.as_bytes();
+
+                    stream.write(req_b).unwrap();
+                    println!("Sent {}, awaiting reply...", req_str);
+
+                    let mut data = [0_u8; 1000];
+                    match stream.read(&mut data) {
+                        Ok(size) => {
+                            // let filtered_b: Vec<u8> = data.into_iter().take_while(|x| *x != 0).collect();
+                            println!(
+                                "...got: {}: {}",
+                                data.len(),
+                                from_utf8(&data[0..size]).unwrap()
+                            );
+                            let response =
+                                serde_json::from_slice::<Response<SumResult>>(&data[0..size])
+                                    .unwrap();
+                            println!("Got response: {:?}", response);
+                        }
+                        Err(e) => {
+                            println!("Failed to receive data: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to connect: {}", e);
+                }
+            }
+            println!("Terminated.");
         }
         SubCommand::Server => {
-            println!("server!!!");
-            server::main()
+            println!("server...");
+            let listener = TcpListener::bind("0.0.0.0:3333").unwrap();
+            run_tcp_server(&listener, SumRequestHandler {});
         }
     }
 }
