@@ -1,10 +1,8 @@
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::str::from_utf8;
-use tcp_server::{run_tcp_server, Request, RequestHandler, Response};
+use tcp_server::{send_tcp_msg, start_tcp_server, RequestHandler};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SumRequest {
@@ -49,39 +47,13 @@ fn main() {
         SubCommand::Server => {
             println!("server...");
             let listener = TcpListener::bind("0.0.0.0:3333").unwrap();
-            run_tcp_server(&listener, SumRequestHandler {});
+            start_tcp_server(&listener, SumRequestHandler {});
         }
         SubCommand::Client => {
             println!("client...");
             match TcpStream::connect("localhost:3333") {
-                Ok(mut stream) => {
-                    println!("Successfully connected to server in port 3333");
-
-                    let req = Request {
-                        id: 55,
-                        payload: SumRequest { x: 25, y: 45 },
-                    };
-                    let req_str = serde_json::to_string(&req).unwrap();
-                    let req_b = req_str.as_bytes();
-
-                    stream.write(req_b).unwrap();
-                    println!("Sent {}, awaiting reply...", req_str);
-
-                    let mut data = [0_u8; 1000];
-                    match stream.read(&mut data) {
-                        Ok(size) => {
-                            println!("...got text: {}: {}", data.len(), from_utf8(&data[0..size]).unwrap());
-                            let response = serde_json::from_slice::<Response<SumResult>>(&data[0..size]).unwrap();
-                            println!("Got response: {:?}", response);
-                        }
-                        Err(e) => {
-                            println!("Failed to receive data: {}", e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!("Failed to connect: {}", e);
-                }
+                Ok(stream) => send_tcp_msg::<SumRequest, SumResult>(&stream, SumRequest { x: 25, y: 45 }),
+                Err(e) => println!("Failed to connect: {}", e),
             }
             println!("Terminated.");
         }

@@ -2,13 +2,13 @@ mod types;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpListener};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 pub use types::*;
 
-const TCP_BUFFER_SIZE: usize = 1024; // needs to accommodate the biggest request!
+const TCP_BUFFER_SIZE: usize = 1024; // FIXME: currently accommodating for the entire message...
 
-pub fn run_tcp_server<'de: 'a, 'a, Payload: DeserializeOwned + Debug, SuccessResult: Serialize + Debug>(
+pub fn start_tcp_server<'a, Payload: DeserializeOwned + Debug, SuccessResult: Serialize + Debug>(
     tcp_listener: &'a TcpListener,
     req_handler: impl RequestHandler<Payload, SuccessResult> + Send + Sync + Copy + 'static,
 ) {
@@ -17,16 +17,10 @@ pub fn run_tcp_server<'de: 'a, 'a, Payload: DeserializeOwned + Debug, SuccessRes
             Ok(mut stream) => {
                 println!("New connection: {}", stream.peer_addr().unwrap());
                 thread::spawn(move || {
-                    // connection succeeded
-                    // handle_client(stream)
                     let mut data = [0 as u8; TCP_BUFFER_SIZE];
                     while match stream.read(&mut data) {
                         Ok(size) => {
-                            // echo everything!
-                            println!("getting request {}", size);
                             let request = serde_json::from_slice::<Request<Payload>>(&data[0..size]).expect("Failed to serde_json::from_slice()");
-                            println!("got request");
-
                             let calc_result = req_handler.handle(request.payload);
 
                             let response = Response {
@@ -50,9 +44,33 @@ pub fn run_tcp_server<'de: 'a, 'a, Payload: DeserializeOwned + Debug, SuccessRes
                 });
             }
             Err(e) => {
-                println!("Error: {}", e);
-                /* connection failed */
+                println!("Connection error: {}", e);
             }
+        }
+    }
+}
+
+// FIXME: need to rework in terms of a struct with methods:
+// - new(&stream: TcpStream, response_callback: Fn<R>(resp: R) => ()
+// - send<P: Serialize + Debug>(&self, msg) => ()
+pub fn send_tcp_msg<P: Serialize + Debug, R: DeserializeOwned + Debug>(mut stream: &TcpStream, payload: P) {
+    let req = Request { id: 55, payload: payload };
+
+    let req_str = serde_json::to_string(&req).unwrap();
+    let req_b = req_str.as_bytes();
+
+    stream.write(req_b).unwrap();
+    println!("Sent {}, awaiting reply...", req_str);
+
+    let mut data = [0_u8; 1000];
+    match stream.read(&mut data) {
+        Ok(size) => {
+            // println!("...got text: {}: {}", data.len(), from_utf8(&data[0..size]).unwrap());
+            let response = serde_json::from_slice::<Response<R>>(&data[0..size]).unwrap();
+            println!("Got response: {:?}", response);
+        }
+        Err(e) => {
+            println!("Failed to receive data: {}", e);
         }
     }
 }
