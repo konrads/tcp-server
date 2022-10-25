@@ -29,16 +29,16 @@ pub fn start_tcp_server<'a, Payload: DeserializeOwned + Debug, SuccessResult: Se
                         // triggered once OEF is received
                         Ok(size) => {
                             all_data.extend_from_slice(&data[0..size]);
-                            let response = match serde_json::from_slice::<Request<Payload>>(&all_data) {
-                                Ok(request) => Response {
-                                    id: request.id,
-                                    result: Result::Success(req_handler.handle(request.payload)),
-                                },
-                                Err(err) => Response {
+                            let response = serde_json::from_slice::<Request<Payload>>(&all_data).map_or_else(
+                                |err| Response {
                                     id: 0,
                                     result: Result::Err(format!("Error on json unmarshall: {}", err)),
                                 },
-                            };
+                                |request| Response {
+                                    id: request.id,
+                                    result: req_handler.handle(request.payload),
+                                },
+                            );
                             let response_str = serde_json::to_string(&response).expect("Failed to serde_json::to_string()");
                             stream.write(response_str.as_bytes()).expect("Failed to stream.write()");
                             false
