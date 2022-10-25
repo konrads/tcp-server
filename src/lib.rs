@@ -6,7 +6,7 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 pub use types::*;
 
-const TCP_BUFFER_SIZE: usize = 1024; // FIXME: currently accommodating for the entire message...
+const TCP_BUFFER_SIZE: usize = 1024;
 
 pub fn start_tcp_server<'a, Payload: DeserializeOwned + Debug, SuccessResult: Serialize + Debug>(
     tcp_listener: &'a TcpListener,
@@ -15,28 +15,36 @@ pub fn start_tcp_server<'a, Payload: DeserializeOwned + Debug, SuccessResult: Se
     for stream in tcp_listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                println!("New connection: {}", stream.peer_addr().unwrap());
+                println!("New connection: {}", stream.peer_addr().expect("Failed to connect"));
                 thread::spawn(move || {
                     let mut data = [0 as u8; TCP_BUFFER_SIZE];
-                    while match stream.read(&mut data) {
-                        Ok(size) => {
-                            let request = serde_json::from_slice::<Request<Payload>>(&data[0..size]).expect("Failed to serde_json::from_slice()");
-                            let calc_result = req_handler.handle(request.payload);
+                    let mut all_data = Vec::<u8>::new();
 
-                            let response = Response {
-                                id: request.id,
-                                result: match calc_result {
-                                    Ok(res) => Result::Success(res),
-                                    Err(err) => Result::Err(err),
+                    while match stream.read(&mut data) {
+                        // triggered if data buffer is filled
+                        Ok(TCP_BUFFER_SIZE) => {
+                            all_data.extend_from_slice(&data);
+                            true
+                        }
+                        // triggered once OEF is received
+                        Ok(size) => {
+                            all_data.extend_from_slice(&data[0..size]);
+                            let response = match serde_json::from_slice::<Request<Payload>>(&all_data) {
+                                Ok(request) => Response {
+                                    id: request.id,
+                                    result: Result::Success(req_handler.handle(request.payload)),
+                                },
+                                Err(err) => Response {
+                                    id: 0,
+                                    result: Result::Err(format!("Error on json unmarshall: {}", err)),
                                 },
                             };
-
                             let response_str = serde_json::to_string(&response).expect("Failed to serde_json::to_string()");
                             stream.write(response_str.as_bytes()).expect("Failed to stream.write()");
                             false
                         }
                         Err(_) => {
-                            println!("An error occurred, terminating connection with {}", stream.peer_addr().unwrap());
+                            println!("Terminating connection due to {}", stream.peer_addr().expect("Failed to obtain peer address"));
                             stream.shutdown(Shutdown::Both).unwrap();
                             false
                         }

@@ -8,6 +8,7 @@ use tcp_server::{send_tcp_msg, start_tcp_server, RequestHandler};
 pub struct SumRequest {
     pub x: u8,
     pub y: u8,
+    pub desc: Option<String>, // used to test requests of different size
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -52,7 +53,7 @@ fn main() {
         SubCommand::Client => {
             println!("client...");
             match TcpStream::connect("localhost:3333") {
-                Ok(stream) => send_tcp_msg::<SumRequest, SumResult>(&stream, SumRequest { x: 25, y: 45 }),
+                Ok(stream) => send_tcp_msg::<SumRequest, SumResult>(&stream, SumRequest { x: 25, y: 45, desc: None }),
                 Err(e) => println!("Failed to connect: {}", e),
             }
             println!("Terminated.");
