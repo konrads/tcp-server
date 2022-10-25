@@ -21,27 +21,46 @@ pub fn start_tcp_server<'a, Payload: DeserializeOwned + Debug, SuccessResult: Se
                     let mut all_data = Vec::<u8>::new();
 
                     while match stream.read(&mut data) {
+                        // EOD, not quitting
+                        Ok(0) => true,
                         // triggered if data buffer is filled
                         Ok(TCP_BUFFER_SIZE) => {
                             all_data.extend_from_slice(&data);
+                            println!("#### all data 0 {:?}", std::str::from_utf8(&all_data).unwrap());
                             true
                         }
                         // triggered once OEF is received
                         Ok(size) => {
                             all_data.extend_from_slice(&data[0..size]);
-                            let response = serde_json::from_slice::<Request<Payload>>(&all_data).map_or_else(
-                                |err| Response {
-                                    id: 0,
-                                    result: Result::Err(format!("Error on json unmarshall: {}", err)),
-                                },
-                                |request| Response {
-                                    id: request.id,
-                                    result: req_handler.handle(request.payload),
-                                },
-                            );
-                            let response_str = serde_json::to_string(&response).expect("Failed to serde_json::to_string()");
-                            stream.write(response_str.as_bytes()).expect("Failed to stream.write()");
-                            false
+                            // println!("#### all data 1 {:?}", std::str::from_utf8(&all_data).unwrap());
+                            let new_line_split_data = all_data
+                                .split(|&b| b == '\n' as u8 || b == '\r' as u8)
+                                .filter(|v| !v.is_empty())
+                                .collect::<Vec<_>>();
+
+                            let response_strs = new_line_split_data
+                                .iter()
+                                .map(|&d| {
+                                    let response = serde_json::from_slice::<Request<Payload>>(d).map_or_else(
+                                        |err| Response {
+                                            id: 0,
+                                            result: Result::Err(format!("Error on json unmarshall: {}", err)),
+                                        },
+                                        |request| Response {
+                                            id: request.id,
+                                            result: req_handler.handle(request.payload),
+                                        },
+                                    );
+                                    let response_str = serde_json::to_string(&response).expect("Failed to serde_json::to_string()");
+                                    // println!("#### all data 1 {:?} -> {:?}", std::str::from_utf8(d).unwrap(), response_str);
+                                    response_str
+                                })
+                                .collect::<Vec<_>>();
+                            stream
+                                .write(response_strs.iter().map(|s| format!("{}\n", s)).collect::<Vec<_>>().join("").as_bytes())
+                                .expect("Failed to stream.write()");
+                            all_data.clear();
+                            true
                         }
                         Err(_) => {
                             println!("Terminating connection due to {}", stream.peer_addr().expect("Failed to obtain peer address"));
